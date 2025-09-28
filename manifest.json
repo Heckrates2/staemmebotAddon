@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Stämme Bot Minimal",
+  "version": "0.1",
+  "description": "Minimaler Start für Step-by-Step Bot",
+  "permissions": ["storage", "tabs"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.die-staemme.de/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Stämme Bot"
+  }
+}
