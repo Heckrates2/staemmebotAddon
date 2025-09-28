@@ -67,7 +67,7 @@ async function login() {
 
   // Input füllen
   await sendToContent({ type: 'FILL', selector: '#user', value: '*' });
-  await sendToContent({ type: 'FILL', selector: '#password', value: '*' });
+  await sendToContent({ type: 'FILL', selector: '#password', value: '+' });
   await sleep(500)
   // Button klicken
   await sendToContent({ type: 'CLICK', selector: '.btn-login' });
@@ -350,7 +350,7 @@ class Bot {
               await this.build(quest.building)
             }
             break;
-          case "train":
+          case "recruit":
             console.log(`Rekutierung von ${quest.unit} gewünscht`)
           default:
             break;
