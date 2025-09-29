@@ -5,7 +5,7 @@ console.log('[BG] Background Worker gestartet');
 // ----------------------------
 let gameTabId = null;
 let bot = null
-const unitcosts = { "spear": { "wood": 50, "stone": 30, "iron": 10, "pop": 1 }, }
+const unitcosts = { "spear": { "wood": 50, "stone": 30, "iron": 10, "pop": 1 }, "sword": { "wood": 30, "stone": 30, "iron": 70, "pop": 1 } }
 
 // Nachricht vom Content Script empfangen
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -67,7 +67,7 @@ async function login() {
 
   // Input füllen
   await sendToContent({ type: 'FILL', selector: '#user', value: '*' });
-  await sendToContent({ type: 'FILL', selector: '#password', value: '+' });
+  await sendToContent({ type: 'FILL', selector: '#password', value: '*' });
   await sleep(500)
   // Button klicken
   await sendToContent({ type: 'CLICK', selector: '.btn-login' });
@@ -108,10 +108,32 @@ class Bot {
       "market": 0,
       "statue": 0
     }
+    this.realBuildings = {
+
+    }
     this.needStorage = 0;
     this.needFarm = 0;
     this.buildingEndtime = 0;
     this.kaserneEndtime = 0;
+  }
+
+  saveState() {
+    const data = {};
+    Object.keys(this).forEach(key => {
+      data[key] = this[key];
+    });
+    chrome.storage.local.set(data, () => { });
+  }
+  loadState() {
+    const keys = Object.keys(this);
+    chrome.storage.local.get(keys, (result) => {
+      keys.forEach(key => {
+        if (result[key] !== undefined) {
+          this[key] = result[key];
+        }
+      });
+      //console.log('State geladen', this);
+    });
   }
 
   async resGet() {
@@ -143,6 +165,14 @@ class Bot {
       await this.gotoOverview()
     }
     await sendToContent({ type: 'CLICK', selector: 'a[href*="screen=main"]' });
+    await sleep(500);
+  }
+
+  async gotoTrain() {
+    if (!await sendToContent({ type: 'EXISTS', selector: 'a[href*="screen=train"]' })) {
+      await this.gotoOverview()
+    }
+    await sendToContent({ type: 'CLICK', selector: 'a[href*="screen=train"]' });
     await sleep(500);
   }
 
@@ -204,18 +234,31 @@ class Bot {
     const timeflag = Date.now() / 1000
     if (this.needFarm) { return { "quest": "build", "building": "farm" } }
     if (this.needStorage) { return { "quest": "build", "building": "storage" } }
-    const minesunder5 = this.ensureMines5();
-    if (minesunder5) return { quest: "build", building: minesunder5 };
-    const mainunder5 = this.ensureMain5();
-    if (mainunder5) return { quest: "build", building: mainunder5 };
-    const barracksunder2 = this.ensureKaserne2();
-    if (barracksunder2) return { quest: "build", building: barracksunder2 };
-    if (timeflag > this.kaserneEndtime) {
-      return { quest: "recruit", unit: "spear" };
-    }
-    const minesunder10 = this.ensureMines10();
-    if (minesunder10) return { quest: "build", building: minesunder10 };
+    let building = this.ensureBuilding(["wood", "stone", "iron"], 5);
+    if (building) return { quest: "build", building: building };
+    building = this.ensureBuilding(["main"], 5);
+    if (building) return { quest: "build", building: building };
+    building = this.ensureBuilding(["barracks"], 2);
+    if (building) return { quest: "build", building: building };
+    building = this.ensureBuilding(["statue"], 1);
 
+    if (building) return { quest: "build", building: building };
+
+    building = this.ensureBuilding(["smith"], 1);
+    if (building) return { quest: "build", building: building };
+    if (timeflag > this.kaserneEndtime && this.realBuildings?.smith?.level == 1) {
+      return { quest: "recruit", units: ["spear", "sword"] };
+    }
+    building = this.ensureBuilding(["wood", "stone", "iron"], 10);
+    if (building) return { quest: "build", building: building };
+    building = this.ensureBuilding(["market"], 5);
+    if (building) return { quest: "build", building: building };
+    building = this.ensureBuilding(["main"], 10);
+    if (building) return { quest: "build", building: building };
+    building = this.ensureBuilding(["barracks", "smith"], 5);
+    if (building) return { quest: "build", building: building };
+
+    return null;
   }
 
   ensureMain5() {
@@ -224,7 +267,7 @@ class Bot {
     }
   }
 
-  ensureMines5() {
+  ensureMines(lv) {
     const buildingKeys = ['wood', 'stone', 'iron'];
     // Array mit Gebäuden, deren level < 5 ist
     const lowBuildings = buildingKeys
@@ -233,28 +276,28 @@ class Bot {
         if (!b) return null;
         return { name: key, level: b.level };
       })
-      .filter(b => b && b.level < 5);
+      .filter(b => b && b.level < lv);
     if (lowBuildings.length === 0) return null;
     // Nimm das Gebäude mit dem niedrigsten Level
     lowBuildings.sort((a, b) => a.level - b.level);
     return lowBuildings[0].name;
   }
 
-  ensureMines10() {
-    const buildingKeys = ['wood', 'stone', 'iron'];
-    // Array mit Gebäuden, deren level < 5 ist
+  ensureBuilding(buildingKeys, lv) {
     const lowBuildings = buildingKeys
       .map(key => {
         const b = this.buildings[key];
         if (!b) return null;
         return { name: key, level: b.level };
       })
-      .filter(b => b && b.level < 10);
+      .filter(b => b && b.level < lv);
     if (lowBuildings.length === 0) return null;
     // Nimm das Gebäude mit dem niedrigsten Level
     lowBuildings.sort((a, b) => a.level - b.level);
     return lowBuildings[0].name;
   }
+
+
 
   ensureKaserne2() {
     if (this.buildings.barracks.level < 2) {
@@ -262,7 +305,29 @@ class Bot {
     }
   }
 
-  canAffordBuilding(building) {
+  async getResfromQuest() {
+    if (await sendToContent({ type: 'EXISTS', selector: '#new_quest' })) {
+      await sendToContent({ type: 'CLICK', selector: '#new_quest' });
+      await sleep(500)
+      if (await sendToContent({ type: 'EXISTS', selector: `a[data-tab="reward-tab"]` })) {
+        await sendToContent({ type: 'CLICK', selector: `a[data-tab="reward-tab"]` });
+        await sleep(500)
+        if (await sendToContent({ type: 'EXISTS', selector: `.reward-system-claim-button` })) {
+          await sendToContent({ type: 'CLICK', selector: '.reward-system-claim-button' });
+          await sleep(500)
+        }
+      }
+      await sendToContent({ type: 'CLICK', selector: '.popup_box_close' })
+      await sleep(500)
+    }
+
+
+
+
+
+  }
+
+  async canAffordBuilding(building) {
     const now = Date.now() / 1000;
     if (now < this.buildingEndtime) {
       return false;
@@ -275,41 +340,84 @@ class Bot {
     }
 
     if (buildingobject.cost.population > this.freepop) {
-      this.needFarm = true;
+
+      if (this.buildings.farm.level == this.realBuildings.farm.level) {
+        this.needFarm = true;
+      }
       return false;
     }
     if (['wood', 'stone', 'iron'].some(res => buildingobject.cost[res] > this[res])) {
+      // hier aus Quest rohstoffe abholen, falls verfügbar. Check...
+      await this.getResfromQuest()
       return false;
     }
     return true;
   }
 
-  canAffordUnit(unit) {
-    const unitobject = unitcosts[unit];
-    if (unitobject.pop > this.freepop) {
-      this.needFarm = true;
+  async canAffordUnits(units) {
+    // Summiere die Kosten aller Einheiten
+    const totalCost = { wood: 0, stone: 0, iron: 0, pop: 0 };
+
+    for (const unit of units) {
+      const u = unitcosts[unit];
+      if (!u) continue;
+
+      totalCost.wood += u.wood || 0;
+      totalCost.stone += u.stone || 0;
+      totalCost.iron += u.iron || 0;
+      totalCost.pop += u.pop || 0;
+    }
+
+    // Prüfe Bevölkerung
+    if (totalCost.pop > this.freepop) {
+      if (this.buildings.farm.level == this.realBuildings.farm.level) {
+        this.needFarm = true;
+      }
       return false;
     }
-    if (['wood', 'stone', 'iron'].some(res => unitobject[res] > this[res])) {
+
+    // Prüfe Ressourcen
+    if (['wood', 'stone', 'iron'].some(res => totalCost[res] > this[res])) {
+      //// hier aus Quest rohstoffe abholen, falls verfügbar. Check...
+      await this.getResfromQuest();
       return false;
     }
+
     return true;
   }
 
   async build(building) {
     await this.gotoMain()
-    await sendToContent({ type: 'CLICK', selector: `a[data-building="${building}"]` });
     await sleep(500)
-    const lastdata = await sendToContent({ type: 'LASTDATA', selector: 'data-endtime' })
-    if (lastdata) {
-      this.buildingEndtime = lastdata;
-      console.log(this.buildingEndtime)
-    }
-    await sleep(2000)
+    this.realBuildings = JSON.parse(JSON.stringify(this.buildings));
+    await sendToContent({ type: 'CLICK', selector: `a[data-building="${building}"]` });
+    //await sleep(500)
+    this.buildingEndtime = this.buildings[building].duration + (Date.now() / 1000)
+    await sleep(1000)
     await this.getBuildings()
   }
 
+  async train(units) {
+    await this.gotoTrain();
+
+    // Fülle die Menge für jede Einheit
+    for (const unit of units) {
+      await sendToContent({ type: 'FILL', selector: `#${unit}_0`, value: '1' });
+      await sleep(500); // kurze Pause zwischen den Fills
+    }
+
+    // Klicke einmal auf den Rekrutieren-Button
+    await sendToContent({ type: 'CLICK', selector: `.btn-recruit` });
+    await sleep(500);
+
+    // Gesamtzeit der Trainingswarteschlange
+    this.kaserneEndtime = await sendToContent({ type: 'TIMEQUE', selector: '#trainqueue_wrap_barracks' });
+    const date = new Date(this.kaserneEndtime * 1000); // Millisekunden
+    console.log(date.toString());
+  }
+
   async main() {
+    this.loadState()
     await sleep(2000)
     while (!gameTabId) { await sleep(100) }
     await sleep(500)
@@ -331,9 +439,19 @@ class Bot {
       //quest-popup-container
       if (await sendToContent({ type: 'EXISTS', selector: '.quest-popup-container' })) {
         await sleep(10000)
-        //popup_box_close 
-        await sendToContent({ type: 'CLICK', selector: '.popup_box_close' })
-        await sleep(400)
+        if (await sendToContent({ type: 'EXISTS', selector: '.quest-complete-btn' })) {
+          await sendToContent({ type: 'CLICK', selector: '.quest-complete-btn' })
+          await sleep(400)
+        }
+        else {
+          
+          //quest-complete-btn
+
+          //popup_box_close 
+          await sendToContent({ type: 'CLICK', selector: '.popup_box_close' })
+          await sleep(400)
+        }
+
       }
 
 
@@ -342,20 +460,27 @@ class Bot {
       //console.log(this.buildings)
       let quest = await this.getNextQuest()
       if (quest != null) {
+        this.quest = quest
         switch (quest.quest) {
           case "build":
-            console.log(`Bau von ${quest.building} soll ausgeführt werden`)
-            if (this.canAffordBuilding(quest.building)) {
-              console.log(`Bau von ${quest.building} wird gebaut`)
+            //console.log(`Bau von ${quest.building} soll ausgeführt werden`)
+            if (await this.canAffordBuilding(quest.building)) {
+              //console.log(`Bau von ${quest.building} wird gebaut`)
               await this.build(quest.building)
             }
             break;
           case "recruit":
-            console.log(`Rekutierung von ${quest.unit} gewünscht`)
+            //console.log(`Rekutierung von ${quest.units} gewünscht`)
+            if (await this.canAffordUnits(quest.units)) {
+              await this.train(quest.units)
+            }
+            break;
           default:
+            //console.log(quest)
             break;
         }
       }
+      this.saveState()
       await sleep(2000)
     }
   }

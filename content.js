@@ -26,61 +26,74 @@ function getLastDataValue(attrName) {
 }
 
 function getTotalQueueTime(queueSelector) {
-    // Alle <span> in der Dauer-Spalte sammeln
-    const spans = document.querySelectorAll(`${queueSelector} td span`);
+    const queue = document.querySelector(queueSelector);
+    if (!queue) return 0;
+
+    const rows = queue.querySelectorAll('tbody tr');
     let totalSeconds = 0;
 
-    spans.forEach(span => {
-        const parts = span.textContent.trim().split(':').map(Number); // ["0","11","04"] → [0,11,4]
+    rows.forEach(row => {
+        const cells = row.querySelectorAll('td');
+        if (cells.length < 2) return; // Keine Dauer-Spalte
+
+        // Zeit aus span oder direkt aus td
+        const span = cells[1].querySelector('span');
+        const timeText = span ? span.textContent.trim() : cells[1].textContent.trim();
+
+        // Prüfe, ob die Zeit im Format hh:mm:ss oder mm:ss ist
+        if (!/^\d{1,2}:\d{2}(:\d{2})?$/.test(timeText)) return;
+
+        const parts = timeText.split(':').map(Number);
         let seconds = 0;
-        if (parts.length === 3) {
-            // Stunden:Minuten:Sekunden
-            seconds = parts[0] * 3600 + parts[1] * 60 + parts[2];
-        } else if (parts.length === 2) {
-            // Minuten:Sekunden
-            seconds = parts[0] * 60 + parts[1];
-        } else if (parts.length === 1) {
-            seconds = parts[0];
-        }
+        if (parts.length === 3) seconds = parts[0]*3600 + parts[1]*60 + parts[2];
+        else if (parts.length === 2) seconds = parts[0]*60 + parts[1];
+
         totalSeconds += seconds;
     });
-
-    // Aktueller Zeitpunkt als Unix-Timestamp + totalSeconds
-    const now = Math.floor(Date.now() / 1000);
-    return now + totalSeconds;
+    console.log(totalSeconds)
+    return Math.floor(Date.now()/1000) + totalSeconds;
 }
+
+
+
+
+
+
+
+
 
 function getBuildingInfo(building) {
-    // Button für das Gebäude finden
-    const buildBtn = document.querySelector(`a[data-building="${building}"]`);
-    if (!buildBtn) return null;
+  const buildBtn = document.querySelector(`a[data-building="${building}"]`);
+  if (!buildBtn) return null;
 
-    // Level: data-level-next - 1
-    const levelNext = parseInt(buildBtn.getAttribute('data-level-next')) || 0;
-    const level = levelNext - 1;
+  const levelNext = parseInt(buildBtn.getAttribute('data-level-next')) || 0;
+  const level = levelNext - 1;
 
-    // Zeile finden
-    const row = buildBtn.closest('tr');
-    if (!row) return null;
+  const row = buildBtn.closest('tr');
+  if (!row) return null;
 
-    // Kosten auslesen
-    const wood = parseInt(row.querySelector('td.cost_wood')?.dataset.cost || 0);
-    const stone = parseInt(row.querySelector('td.cost_stone')?.dataset.cost || 0);
-    const iron = parseInt(row.querySelector('td.cost_iron')?.dataset.cost || 0);
-    const population = parseInt(row.querySelector('td span.icon.header.population')?.parentElement.textContent.trim() || 0);
+  const wood = parseInt(row.querySelector('td.cost_wood')?.dataset.cost || 0);
+  const stone = parseInt(row.querySelector('td.cost_stone')?.dataset.cost || 0);
+  const iron = parseInt(row.querySelector('td.cost_iron')?.dataset.cost || 0);
+  const population = parseInt(row.querySelector('td span.icon.header.population')?.parentElement.textContent.trim() || 0);
 
-    return {
-        
-            level: level,
-            cost: {
-                wood: wood,
-                stone: stone,
-                iron: iron,
-                population: population
-            }
-        
-    };
+  // Dauer in Sekunden
+  const timeText = row.querySelector('td .icon.header.time')?.parentElement.textContent.trim() || "0:00:00";
+  const [h, m, s] = timeText.split(":").map(Number);
+  const duration = (h * 3600) + (m * 60) + s;
+
+  return {
+    level,
+    cost: {
+      wood,
+      stone,
+      iron,
+      population
+    },
+    duration // Sekunden
+  };
 }
+
 
 
 function clickElement(selector) {
