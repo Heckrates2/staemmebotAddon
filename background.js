@@ -7,6 +7,20 @@ let gameTabId = null;
 let bot = null
 const unitcosts = { "spear": { "wood": 50, "stone": 30, "iron": 10, "pop": 1 }, "sword": { "wood": 30, "stone": 30, "iron": 70, "pop": 1 } }
 
+// ----------------------------
+// Credentials (aus chrome.storage.local)
+// ----------------------------
+async function getCredentials() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['username', 'password'], (res) => {
+      resolve({
+        username: res.username || '',
+        password: res.password || ''
+      });
+    });
+  });
+}
+
 // Nachricht vom Content Script empfangen
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || !msg.type) return;
@@ -65,9 +79,15 @@ async function login() {
     }
   }
 
+  const { username, password } = await getCredentials();
+  if (!username || !password) {
+    console.warn('[BG] Keine Credentials gesetzt. Bitte in chrome.storage.local "username" und "password" hinterlegen.');
+    return;
+  }
+
   // Input füllen
-  await sendToContent({ type: 'FILL', selector: '#user', value: '*' });
-  await sendToContent({ type: 'FILL', selector: '#password', value: '*' });
+  await sendToContent({ type: 'FILL', selector: '#user', value: username });
+  await sendToContent({ type: 'FILL', selector: '#password', value: password });
   await sleep(500)
   // Button klicken
   await sendToContent({ type: 'CLICK', selector: '.btn-login' });
